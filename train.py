@@ -101,10 +101,29 @@ if __name__ == '__main__':
     test_dataset = None
     print('model', model_type, 'epoch', n_epoch, 'batchsz', batch_size, 'betas',
           betas, 'eps', eps, 'ctx', ctx_len, 'layer', n_layer, 'embd', n_embd, )
-    tconf = TrainerConfig(model_type=model_type, max_epochs=n_epoch, batch_size=batch_size,
-                          learning_rate=lr_init, lr_decay=True, lr_final=lr_final, betas=betas, eps=eps, grad_norm_clip=grad_norm_clip,
-                          warmup_tokens=warmup_tokens, final_tokens=n_epoch*len(train_dataset)*ctx_len, num_workers=num_workers, epoch_save_frequency=epoch_save_frequency, epoch_save_path=epoch_save_path)
-    trainer = Trainer(model, train_dataset, valid_dataset, test_dataset, tconf)
+    tconf = TrainerConfig(
+        model_type=model_type,
+        max_epochs=n_epoch,
+        batch_size=batch_size,
+        learning_rate=lr_init,
+        lr_decay=True,
+        lr_final=lr_final,
+        betas=betas,
+        eps=eps,
+        grad_norm_clip=grad_norm_clip,
+        warmup_tokens=warmup_tokens,
+        final_tokens=n_epoch*len(train_dataset)*ctx_len,
+        num_workers=num_workers,
+        epoch_save_frequency=epoch_save_frequency,
+        epoch_save_path=epoch_save_path
+    )
+    trainer = Trainer(
+        model=model,
+        train_dataset=train_dataset,
+        valid_dataset=valid_dataset,
+        test_dataset=test_dataset,
+        config=tconf,
+    )
 
     trainer.train()
 

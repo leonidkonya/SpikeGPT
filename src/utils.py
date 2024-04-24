@@ -61,6 +61,7 @@ class Dataset(Dataset):
     def __getitem__(self, idx):
         #
         # we are cheating: pick a random spot in dataset
+        # NOTE: why are we cheating exactly? and why is it ok
         #
         i = np.random.randint(0, self.data_size - (self.ctx_len + 1))
         if 'MMapIndexedDataset' in str(type(self.data)):

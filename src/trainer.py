@@ -90,7 +90,10 @@ class Trainer:
         optimizer = accelerator.prepare(optimizer)
         model = accelerator.prepare(model)
 
-        def run_epoch(split):
+        def run_epoch(split: str):
+            """
+                split (str): name of split, eg. train, valid, test
+            """
             is_train = split == 'train'
             data = self.train_dataset if is_train else self.test_dataset
             if split == 'valid':

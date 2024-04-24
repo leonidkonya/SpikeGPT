@@ -34,6 +34,9 @@ os.environ["RWKV_JIT_ON"] = '1' # '1' or '0'. very useful for GPU/CPU fp32, but 
 # WORD_NAME = "vocab_book"
 # UNKNOWN_CHAR = ' '
 # vocab_size = 77
+# model_name = 'BookCorpus-SpikeGPT'
+# model_folder = '/workspace/spiking_workspace/SpikeGPT-BookCorpus/'
+
 
 #For 216M OpenWebText Pre-trained model
 TOKEN_MODE = "pile"
@@ -43,13 +46,14 @@ WORD_NAME = [
 ]  # [vocab, vocab] for Pile model
 UNKNOWN_CHAR = None
 vocab_size = 50277
+model_name = 'SpikeGPT-216M'
+model_folder = '/workspace/spiking_workspace/SpikeGPT-OpenWebText-216M/'
 
-MODEL_NAME = 'SpikeGPT-216M'
 n_layer = 18
 n_embd = 768
 ctx_len = 1024
 
-args.MODEL_NAME = MODEL_NAME
+args.model_path = f'{model_folder}{model_name}.pth'
 args.n_layer = n_layer
 args.n_embd = n_embd
 args.ctx_len = ctx_len
@@ -70,7 +74,7 @@ os.environ["RWKV_RUN_DEVICE"] = args.RUN_DEVICE
 #context = '''Corporal Michael P. Goeldin was an unskilled laborer from Ireland when he enlisted in Company A in November 1860. Goldein survived the war. Corporal Patrick O’Neal, also from Ireland, first enlisted in 1854 and served with Company L, 3d U.S. Artillery, in Oregon. He returned to the East Coast and enlisted in the company in 1860. O’Neal served until 1874, when he was named superintendent of the National Cemetery at Willets Point, New York. Corporal Benjamin Browne was a shoemaker from Orange County, New York. In August 1862, he enlisted in the newly formed 124th New York Volunteers, and was one of sixty-one men who transferred into Company A that October. Browne reenlisted in the company in February 1864 while it was camped at Brandy Station. He returned to civilian life after completing his enlistment in 1867.
 #On 10 June, Artificer William Collins was promoted to corporal, probably to fill a combat leadership void for the crossing of the James River. Collins’s service record does not reflect the qualities he demonstrated to earn this promotion, but he had obviously overcome some serious problems. Born in Sacketts Harbor, New York, Collins enlisted in the company in December 1853 at the age of twenty-two, and reenlisted in December 1858. Just a month before the war began in April 1861, Collins went ”over the hill” and was not caught until three years later. Returned to the company on 22 March 1864, he was tried'''
 #context = 'Aaron loves mint chocolate cake, but he requires that it be paired with mini chocolate chips, so I threw some of those in between the layers. I also had a few Peppermint Jo Jos on hand so I crushed them up and threw some of those in along with some crushed meringue cookies because, why not? It’s a total smorgasbord of minty chocolate chippy cookie crunchy goodness. I didn’t measure how much of each topping I used, but after I tasted the finished product, I wish I had added more. You can add anything you want- crushed candy canes, peppermint bark, etc. And don’t be afraid to use a heavy hand. Texture = good.'
-context = 'Prehistoric man sketched an incredible array of prehistoric beasts on the rough limestone walls of a cave in modern day France 36,000 years ago. Now, with the help of cutting-edge technology, those works of art in the Chauvet-Pont-d’Arc Cave have been reproduced to create the biggest replica cave in the world. The manmade cavern named the Caverne du Pont-d’Arc has been built a few miles from the original site in Vallon-Pont-D’arc in Southern France and contains 1,000 painstakingly-reproduced drawings as well as around 450 bones and other features...\n Cavemen and women sketched an incredible array of prehistoric beasts on the rough limestone walls of a cave 36,000 years ago and now a replica has been created (pictured)'
+#context = 'Prehistoric man sketched an incredible array of prehistoric beasts on the rough limestone walls of a cave in modern day France 36,000 years ago. Now, with the help of cutting-edge technology, those works of art in the Chauvet-Pont-d’Arc Cave have been reproduced to create the biggest replica cave in the world. The manmade cavern named the Caverne du Pont-d’Arc has been built a few miles from the original site in Vallon-Pont-D’arc in Southern France and contains 1,000 painstakingly-reproduced drawings as well as around 450 bones and other features...\n Cavemen and women sketched an incredible array of prehistoric beasts on the rough limestone walls of a cave 36,000 years ago and now a replica has been created (pictured)'
 # context = '\nSugar:'
 # context = "In a shocking finding, scientist discovered a herd of dragons living in a remote, previously unexplored valley, in Tibet. Even more surprising to the researchers was the fact that the dragons spoke perfect Chinese."
 
@@ -109,7 +113,13 @@ context = 'Prehistoric man sketched an incredible array of prehistoric beasts on
 
 # User:''' # type your question here
 
-NUM_TRIALS = 999
+
+
+context = "Even though penguins are birds, they can't fly because"
+
+
+# NUM_TRIALS = 999
+NUM_TRIALS = 1
 LENGTH_PER_TRIAL = 333
 
 TEMPERATURE = 1.5
@@ -120,7 +130,7 @@ DEBUG_DEBUG = False  # True False --> show softmax output
 
 ########################################################################################################
 
-print(f'\nUsing {args.RUN_DEVICE.upper()}. Loading {MODEL_NAME}...')
+print(f'\nUsing {args.RUN_DEVICE.upper()}. Loading {model_name}...')
 from src.model_run import RWKV_RNN
 
 model = RWKV_RNN(args)
@@ -148,10 +158,10 @@ else:
 src_len = len(ctx)
 src_ctx = ctx.copy()
 
-print("\nYour prompt has " + str(src_len) + " tokens.")
-print(
-    "Note: currently the first run takes a while if your prompt is long, as we are using RNN to preprocess the prompt. Use GPT to build the hidden state for better speed.\n"
-)
+# print("\nYour prompt has " + str(src_len) + " tokens.")
+# print(
+#     "Note: currently the first run takes a while if your prompt is long, as we are using RNN to preprocess the prompt. Use GPT to build the hidden state for better speed.\n"
+# )
 
 time_slot = {}
 time_ref = time.time_ns()

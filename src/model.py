@@ -363,8 +363,10 @@ class GPT(nn.Module):
             self.head_q.scale_init = 0
             self.head_k = nn.Linear(config.n_embd, RWKV_HEAD_QK_DIM, bias=False)
             self.head_k.scale_init = 0.1
-            self.register_buffer("copy_mask", torch.tril(
-                torch.ones(config.ctx_len, config.ctx_len)))
+            self.register_buffer(
+                "copy_mask",
+                torch.tril(torch.ones(config.ctx_len, config.ctx_len))
+            )
 
         self.ctx_len = config.ctx_len
 

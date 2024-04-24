@@ -27,7 +27,7 @@ dtypes = {
     3: np.int16,
     4: np.int32,
     5: np.int64,
-    6: np.float,
+    6: float,
     7: np.double,
     8: np.uint16,
 }
@@ -45,6 +45,7 @@ def data_file_path(prefix_path):
     return prefix_path + ".bin"
 
 class MMapIndexedDataset(torch.utils.data.Dataset):
+    # https://github.com/facebookresearch/fairseq/blob/main/fairseq/data/indexed_dataset.py#L391
     class Index(object):
         _HDR_MAGIC = b"MMIDIDX\x00\x00"
 
@@ -153,6 +154,7 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self._index)
 
+    # why is lry cache disabled?
     # @lru_cache(maxsize=8)
     def __getitem__(self, idx):
         if isinstance(idx, int):
