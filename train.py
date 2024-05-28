@@ -16,97 +16,108 @@ from accelerate import accelerator
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cuda.matmul.allow_tf32 = True
+import sys
 
+from types import SimpleNamespace
+from argparse import ArgumentParser
+import yaml
 
-### Step 1: set training data ##########################################################################
-
-datafile_train = "enwik8" # txt file or binidx file
-datafile_valid = "valid.txt"
-datafile_test = "test.txt"
-datafile_encoding = 'utf-8'
-# datafile_encoding = 'utf-16le'
-
-### Step 2: set model size #############################################################################
-
-ctx_len = 1024        # ===> increase T_MAX in model.py if your ctx_len > 1024
-n_layer = 24
-n_embd = 768
-
-# 'RWKV' (better for char-level English) or 'RWKV-ffnPre' (better in some cases)
-model_type = 'RWKV'
-
-### Step 3: set batch size #############################################################################
-
-# ===> batch_size must be divisible by B_GROUP_FORWARD and B_GROUP_BACKWARD in model.py
-# For example, if your batch_size = 20, you can set B_GROUP_FORWARD = 4, B_GROUP_BACKWARD = 2
-# If you see "CUDA out of memory", reduce it. Use GPU-Z to find the highest value for your VRAM.
-batch_size = 12
-
-### Step 4: set learning rate, training mini-epochs #######################################################
-
-lr_init = 6e-4
-lr_final = 1e-5
-# the mini-epoch is very short and of fixed length (ctx_len * epoch_length_fixed tokens)
-n_epoch = 1000
-# 0 = never, 1 = every mini-epoch, 2 = every two mini-epochs, etc.
-epoch_save_frequency = 10
-epoch_save_path = 'your_path'
-
-epoch_length_fixed = 10000
-
-########################################################################################################
-
-import src.utils
-src.utils.set_seed(42) # remember to change seed if you load a model
+# import src.utils
+# src.utils.set_seed(42) # remember to change seed if you load a model
 
 np.set_printoptions(precision=4, suppress=True, linewidth=200)
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
                     datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO,)
 
-grad_norm_clip = 1.0
-warmup_tokens = 0
 
-betas = (0.9, 0.99)
-eps = 4e-9
 
-num_workers = 0
 
-########################################################################################################
-# Load data
-########################################################################################################
 
-print('loading data... ' + datafile_train)
-train_dataset = Dataset(open(
-    datafile_train, "r", encoding=datafile_encoding).read(), ctx_len, epoch_length_fixed)
-
-#train_dataset = Dataset(MMapIndexedDataset(datafile_train), ctx_len, epoch_length_fixed) #use it when you use binidx files
-
-# valid_dataset = Dataset(open(
-#     datafile_valid, "r", encoding=datafile_encoding).read(), ctx_len, epoch_length_fixed) 
-
-# test_dataset = Dataset(open(
-#     datafile_test, "r", encoding=datafile_encoding).read(), ctx_len, epoch_length_fixed)
-########################################################################################################
-# Train model
-########################################################################################################
 if __name__ == '__main__':
 
-    model = GPT(GPTConfig(train_dataset.vocab_size, train_dataset.ctx_len, model_type=model_type,
-                          n_layer=n_layer, n_embd=n_embd)).cuda()
+    parser = ArgumentParser()
+    parser.add_argument('-c', '--config', type=str, default='config/default_conf.yml')
+
+    args = parser.parse_args()
+
+    with open(args.config, 'r') as f:
+        args = SimpleNamespace(**yaml.safe_load(f))
+
+    train_dataset = Dataset(
+        data=MMapIndexedDataset(args.datafile_train),
+        ctx_len=args.ctx_len,
+        epoch_length_fixed=args.epoch_length_fixed,
+    )
+
+    # print()
+    # print(f'vocab size: {train_dataset.vocab_size}')
+    # print()
+
+    # sys.exit(0)
+
+    valid_dataset = Dataset(
+        data=MMapIndexedDataset(args.datafile_valid),
+        ctx_len=args.ctx_len,
+        epoch_length_fixed=args.epoch_length_fixed,
+    ) if args.datafile_valid else None
+
+    test_dataset = Dataset(
+        data=MMapIndexedDataset(args.datafile_test),
+        ctx_len=args.ctx_len,
+        epoch_length_fixed=args.epoch_length_fixed,
+    ) if args.datafile_test else None
+
+    model = GPT(
+        GPTConfig(
+            train_dataset.vocab_size,
+            train_dataset.ctx_len,
+            model_type=args.model_type,
+            n_layer=args.n_layer,
+            n_embd=args.n_embd,
+        )
+    ).cuda()
 
     # # load a trained model. remember to change random seed
-#     m2 = torch.load('medium/trained-30L-768E-936.pth',map_location=torch.device('cpu'))
-#     model.load_state_dict(m2)
-    valid_dataset = None
-    test_dataset = None
-    print('model', model_type, 'epoch', n_epoch, 'batchsz', batch_size, 'betas',
-          betas, 'eps', eps, 'ctx', ctx_len, 'layer', n_layer, 'embd', n_embd, )
-    tconf = TrainerConfig(model_type=model_type, max_epochs=n_epoch, batch_size=batch_size,
-                          learning_rate=lr_init, lr_decay=True, lr_final=lr_final, betas=betas, eps=eps, grad_norm_clip=grad_norm_clip,
-                          warmup_tokens=warmup_tokens, final_tokens=n_epoch*len(train_dataset)*ctx_len, num_workers=num_workers, epoch_save_frequency=epoch_save_frequency, epoch_save_path=epoch_save_path)
-    trainer = Trainer(model, train_dataset, valid_dataset, test_dataset, tconf)
+    # m2 = torch.load('medium/trained-30L-768E-936.pth',map_location=torch.device('cpu'))
+    # model.load_state_dict(m2)
+
+    tconf = TrainerConfig(
+        model_type=args.model_type,
+        max_epochs=args.n_epoch,
+        batch_size=args.batch_size,
+        train_micro_batch_size_per_gpu=args.train_micro_batch_size_per_gpu,
+        learning_rate=args.lr_init,
+        lr_decay=True,
+        lr_final=args.lr_final,
+        betas=args.betas,
+        eps=args.eps,
+        grad_norm_clip=args.grad_norm_clip,
+        warmup_tokens=args.warmup_tokens,
+        final_tokens=args.n_epoch*len(train_dataset)*args.ctx_len,
+        num_workers=args.num_workers, epoch_save_frequency=args.epoch_save_frequency,
+        epoch_save_path=args.epoch_save_path,
+        wandb_logging=args.wandb_logging,
+        wandb_project=args.wandb_project,
+        wandb_prefix=args.wandb_prefix,
+        early_stopping=args.early_stopping,
+        early_stopping_steps=args.early_stopping_steps,
+        shuffle=args.shuffle,
+    )
+    
+    trainer = Trainer(
+        model,
+        train_dataset,
+        valid_dataset,
+        test_dataset,
+        tconf
+    )
 
     trainer.train()
 
-    torch.save(model.state_dict(), 'trained-' + str(n_epoch) + '-' + trainer.get_run_name() +
-               '-' + datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S') + '.pth')
+    run_name = trainer.get_run_name()
+    timestamp = datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S')
+
+    torch.save(
+        model.state_dict(),
+        f'{args.wandb_prefix}-{args.n_epoch}_final-{run_name}.pth',
+    )

@@ -1,0 +1,52 @@
+
+
+# model
+ctx_len: 512 # ===> increase T_MAX in model.py if your ctx_len > 1024
+n_layer: 12
+n_embd: 768
+# 'RWKV' (better for char-level English) or 'RWKV-ffnPre' (better in some cases)
+model_type: 'RWKV' #RWKV-ffnPre
+# in case of fine-tuning: (not yet implemented)
+model_pretrained_path: #"/workspace/spiking_workspace/SpikeGPT-OpenWebText-216/SpikeGPT-216M.pth"
+use_pretrained: False
+
+# wandb
+wandb_logging: True
+wandb_project: "spiking_lm"
+wandb_prefix: "spikeGPT" # also used as the save name
+# wandb_run_name: "" # if not empty, the trainer will generate a name
+
+# training
+epoch_save_frequency: 0 # 0 = only save after the last epoch
+epoch_save_path: "/workspace/spiking_workspace/out_spiking"
+epoch_length_fixed: 10000 # this doesn't seem to have a purpose
+grad_norm_clip: 1.0
+warmup_tokens: 0
+betas:
+  - 0.9
+  - 0.99
+eps: 0.0000000004
+lr_init: 0.00006
+lr_final: 0.000001
+# the mini-epoch is very short and of fixed length
+#   (ctx_len * epoch_length_fixed tokens)
+n_epoch: 1
+# ===> batch_size must be divisible by B_GROUP_FORWARD and B_GROUP_BACKWARD in model.py
+# For example, if your batch_size = 20, you can set B_GROUP_FORWARD = 4, B_GROUP_BACKWARD = 2
+# If you see "CUDA out of memory", reduce it. Use GPU-Z to find the highest value for your VRAM.
+batch_size: 28
+train_micro_batch_size_per_gpu: 28 # does this change to batch_size//NUM_GPUs when not using DP?
+num_workers: 28
+
+shuffle: False
+
+
+# datafile_train: "/workspace/spiking_workspace/pretokenized/wikitext103/wikitext103" # in the case of mmap (.bin and .idx files) the name of both files should be the same, adn that that should be given here
+datafile_train: "/workspace/spiking_workspace/pretokenized/sample_dataset/sample_dataset_text_document" # in the case of mmap (.bin and .idx files) the name of both files should be the same, adn that that should be given here
+datafile_valid: 
+datafile_test: 
+
+
+# debug
+early_stopping: True
+early_stopping_steps: 50 # how many steps should it stop after

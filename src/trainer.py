@@ -20,6 +20,8 @@ import pdb
 from accelerate import Accelerator
 from src.model import L2Wrap
 
+import wandb
+
 # import wandb  # comment this if you don't have wandb
 # print('logging to wandb... (comment it if you don\'t have wandb)')
 accelerator = Accelerator()
@@ -35,6 +37,7 @@ log_file = open("wik8-0.01.txt", "a")
 class TrainerConfig:
     max_epochs = 10
     batch_size = 64
+    train_micro_batch_size_per_gpu = 64
     learning_rate = 4e-4
     betas = (0.9, 0.99)
     eps = 1e-8
@@ -45,6 +48,12 @@ class TrainerConfig:
     epoch_save_frequency = 0
     epoch_save_path = 'trained-'
     num_workers = 0  # for DataLoader
+    wandb_logging = False
+    wandb_prefix = 'spikeGPT'
+    wandb_project = 'spiking_lm'
+    early_stopping = False
+    early_stopping_steps = 1
+    shuffle = False
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -64,52 +73,85 @@ class Trainer:
         self.dev_loss = -1
         self.steps = 0
 
-        #         if 'wandb' in sys.modules:
-        #             cfg = model.config
-        #             for k in config.__dict__:
-        #                 setattr(cfg, k, config.__dict__[k])  # combine cfg
-        #             wandb.init(project="RWKV-LM", name=self.get_run_name() + '-' +
-        #                        datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S'), config=cfg, save_code=False)
+
+        if self.wandb_logging_enabled():
+            cfg = model.config
+            for k in config.__dict__:
+                setattr(cfg, k, config.__dict__[k])  # combine cfg
+            wandb.init(
+                project=self.config.wandb_project,
+                name=self.get_run_name(),
+            )
 
         self.device = 'cpu'
         if torch.cuda.is_available():  # take over whatever gpus are on the system
             self.device = torch.cuda.current_device()
 
+    def wandb_logging_enabled(self):
+        """do logging on a single thread
+        """
+        return self.config.wandb_logging and (
+            not torch.distributed.is_initialized() or
+            (torch.distributed.is_initialized() and torch.distributed.get_rank()==0)
+        )
+
+    def get_batch_size(self):
+        """Returns the real batch size that's used for updating the weights
+            (includes batches distributed across GPUs and accumulated gradients)
+        NOTE: config.batch_size refers to the dataloader, so in the case of DP
+            it's the "mini batch size"
+        """
+        return self.config.batch_size * self.gradient_accumulation_steps * accelerator.state.num_processes
+
+    @property
+    def zero_stage(self):
+        # return accelerator.state.deepspeed_plugin.deepspeed_config["zero_optimization"]["stage"]
+        return accelerator.state.deepspeed_plugin.deepspeed_config["zero_optimization"]["stage"]
+
+    @property
+    def gradient_accumulation_steps(self):
+        return accelerator.state.deepspeed_plugin.deepspeed_config['gradient_accumulation_steps']
+
+
     def get_run_name(self):
         raw_model = self.model.module if hasattr(
             self.model, "module") else self.model
         cfg = raw_model.config
-        run_name = str(cfg.vocab_size) + '-' + str(cfg.ctx_len) + '-' + \
-                   cfg.model_type + '-' + str(cfg.n_layer) + '-' + str(cfg.n_embd)
+        timestamp = datetime.datetime.today().strftime('%Y-%m-%d-%H-%M-%S')
+        run_name = f'{cfg.model_type}_v{cfg.vocab_size}_bs{self.get_batch_size()}_ctx{cfg.ctx_len}_L{cfg.n_layer}_E{cfg.n_embd}_zero{self.zero_stage}_{timestamp}'
         return run_name
 
     def train(self):
         model, config = self.model, self.config
         raw_model = model.module if hasattr(self.model, "module") else model
         optimizer = raw_model.configure_optimizers(config)
-        optimizer = accelerator.prepare(optimizer)
-        model = accelerator.prepare(model)
+        accelerator.state.deepspeed_plugin.deepspeed_config['train_micro_batch_size_per_gpu'] = self.config.train_micro_batch_size_per_gpu
+        
+        model, optimizer = accelerator.prepare(model, optimizer)
 
         def run_epoch(split):
             is_train = split == 'train'
             data = self.train_dataset if is_train else self.test_dataset
             if split == 'valid':
                 data = self.valid_dataset
-            # pdb.set_trace()
+
             model.train(is_train)
-            if config.num_workers > 0:
-                loader = DataLoader(data, shuffle=False, pin_memory=True,
-                                    batch_size=config.batch_size,
-                                    num_workers=config.num_workers)
-            else:
-                loader = DataLoader(data, shuffle=False,
-                                    batch_size=config.batch_size,
-                                    num_workers=config.num_workers)
+            loader = DataLoader(
+                data,
+                shuffle=self.config.shuffle,
+                pin_memory=config.num_workers>0,
+                batch_size=config.batch_size,
+                num_workers=config.num_workers
+            )
 
             loader = accelerator.prepare(loader)
-            pbar = tqdm(enumerate(loader), total=len(
-                loader), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}',
-                        disable=not accelerator.is_local_main_process) if is_train else enumerate(loader)
+
+            pbar = tqdm(
+                enumerate(loader), 
+                total=len(loader),
+                bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}',
+                disable=not accelerator.is_local_main_process
+            ) if is_train else enumerate(loader)
 
             model.train(is_train)
             dev_loss_all = 0
@@ -159,9 +201,9 @@ class Trainer:
                     now_loss = loss.item()  # report progress
                     self.lr = lr
 
-                    #                     if 'wandb' in sys.modules:
-                    #                         wandb.log({"loss": now_loss},
-                    #                                   step=self.steps * self.config.batch_size)
+                    if self.wandb_logging_enabled():
+                        wandb.log({"loss": now_loss},
+                                    step=self.steps * self.config.batch_size)
                     self.steps += 1
 
                     if self.avg_loss < 0:
@@ -174,6 +216,10 @@ class Trainer:
                         f"mini-epoch {epoch + 1} prog {progress * 100.0:.2f}% iter {it}: ppl {math.exp(self.avg_loss):.2f} loss {self.avg_loss:.4f} lr {lr:e}")
                 else:
                     dev_loss_all += loss.item()
+
+                if config.early_stopping and config.early_stopping_steps == it:
+                    break
+
             if not is_train:
                 self.dev_loss = dev_loss_all / len(loader)
 
@@ -185,28 +231,42 @@ class Trainer:
             log_file.write(
                 f'{epoch + 1} {self.avg_loss:.6f} {math.exp(self.avg_loss):.4f} {self.lr:.8f} {datetime.datetime.now()} \n')
             log_file.flush()
-#             run_epoch('valid')
-#             log_file.write(
-#                 f'{epoch + 1} {self.dev_loss:.6f} {math.exp(self.dev_loss):.4f} {self.lr:.8f} {datetime.datetime.now()} \n')
-#             log_file.flush()
-            #             run_epoch('test')
-            #             log_file.write(
-            #                 f'{epoch+1} {self.dev_loss:.6f} {math.exp(self.dev_loss):.4f} {self.lr:.8f} {datetime.datetime.now()} \n')
-            #             log_file.flush()
 
-            #             if self.dev_loss < self.min_dev_loss:
-            #                 self.min_dev_loss = self.dev_loss
-            #                 save_flag = True
+            if self.valid_dataset:
+                run_epoch('valid')
+                log_file.write(
+                    f'{epoch + 1} {self.dev_loss:.6f} {math.exp(self.dev_loss):.4f} {self.lr:.8f} {datetime.datetime.now()} \n')
+                log_file.flush()
+            
+            if self.test_dataset:
+                run_epoch('test')
+                log_file.write(
+                    f'{epoch+1} {self.dev_loss:.6f} {math.exp(self.dev_loss):.4f} {self.lr:.8f} {datetime.datetime.now()} \n')
+                log_file.flush()
 
-            if (self.config.epoch_save_frequency > 0 and epoch % self.config.epoch_save_frequency == 0) or (
-                    epoch == config.max_epochs - 1):
+            # if self.dev_loss < self.min_dev_loss:
+            #     self.min_dev_loss = self.dev_loss
+            #     save_flag = True
+
+            if (
+                    self.config.epoch_save_frequency > 0 and 
+                    epoch % self.config.epoch_save_frequency == 0
+                ) or (epoch == config.max_epochs - 1):
+
                 # DataParallel wrappers keep raw model object in .module
                 accelerator.wait_for_everyone()
                 unwrapped_model = accelerator.unwrap_model(model)
                 raw_model = unwrapped_model.module if hasattr(
                     unwrapped_model, "module") else unwrapped_model
-                torch.save(raw_model.state_dict(),
-                           self.config.epoch_save_path + str(epoch + 1) + '.pth')
+                
+                run_name = self.get_run_name()
+                torch.save(
+                    raw_model.state_dict(),
+                    os.path.join(
+                        self.config.epoch_save_path,
+                        f'{self.config.wandb_prefix}-{epoch+1}-{run_name}.pth',
+                    ),
+                )
 
 #             if epoch >=100 and save_flag:
 #                 accelerator.wait_for_everyone()

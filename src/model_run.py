@@ -38,8 +38,9 @@ class RWKV_RNN(MyModule):
         self.args = args
         self.FLOAT_MODE = args.FLOAT_MODE
         self.RUN_DEVICE = args.RUN_DEVICE
+        self.model_type = args.model_type
         with torch.no_grad():
-            w = torch.load(args.MODEL_NAME + '.pth', map_location='cpu')
+            w = torch.load(args.MODEL_NAME, map_location='cpu')
             # refine weights and send to correct device
             keys = list(w.keys())
             if 'pos_emb_x' in keys:
@@ -52,7 +53,7 @@ class RWKV_RNN(MyModule):
                     block_id = int(x.split('.')[1])
                 if 'att.output.weight' in x:
                     w[x] = w[x] / (2 ** int(block_id // RWKV_RESCALE_LAYER))
-                if 'ffn.value.weight' in x:
+                if 'ffn.value.weight' in x or 'ffnPre.value.weight' in x:
                     w[x] = w[x] / (2 ** int(block_id // RWKV_RESCALE_LAYER))
                                 
                 if '.time_' in x:
@@ -224,15 +225,37 @@ class RWKV_RNN(MyModule):
                 if i == 0:
                     x = self.LN(x, w.blocks[i].ln0)
                 
-                ww = w.blocks[i].att
-                att = self.SA(self.LN(x, w.blocks[i].ln1), state, i,
-                    ww.time_mix_k, ww.time_mix_v, ww.time_mix_r, ww.time_first, ww.time_decay,
-                    ww.key.weight, ww.value.weight, ww.receptance.weight, ww.output.weight, mem1)
-                x = x + att
+                if i == 0 and self.model_type == 'RWKV-ffnPre':
+                    # apply RWKV_ChannelMix
+                    ww = w.blocks[i].ffnPre
+                    ffnPre = self.FF(
+                        self.LN(x, w.blocks[i].ln1),
+                        state, i,
+                        ww.time_mix_k, ww.time_mix_r,
+                        ww.key.weight, ww.value.weight, ww.receptance.weight, mem1
+                    )
+                    x = x + ffnPre
+                else:
+                    # apply RWKV_TimeMix
+                    ww = w.blocks[i].att
+                    att = self.SA(
+                        self.LN(x, w.blocks[i].ln1),
+                        state, i,
+                        ww.time_mix_k, ww.time_mix_v, ww.time_mix_r,
+                        ww.time_first, ww.time_decay, ww.key.weight,
+                        ww.value.weight, ww.receptance.weight, ww.output.weight,
+                        mem1
+                    )
+                    x = x + att
+
+                # apply RWKV_ChannelMix
                 ww = w.blocks[i].ffn
-                ffn = self.FF(self.LN(x, w.blocks[i].ln2), state, i,
+                ffn = self.FF(
+                    self.LN(x, w.blocks[i].ln2),
+                    state, i,
                     ww.time_mix_k, ww.time_mix_r,
-                    ww.key.weight, ww.value.weight, ww.receptance.weight, mem2)
+                    ww.key.weight, ww.value.weight, ww.receptance.weight, mem2
+                )
 
                 x = x + ffn
                 if (i+1) % RWKV_RESCALE_LAYER == 0:

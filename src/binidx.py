@@ -7,7 +7,9 @@ import struct
 from functools import lru_cache
 from itertools import accumulate
 
-def print_rank_0(*message):
+def print_rank_0(*message, verbose=True):
+    if not verbose:
+        return
     """If distributed is initialized print only on rank 0."""
     if torch.distributed.is_initialized():
         if torch.distributed.get_rank() == 0:
@@ -27,7 +29,7 @@ dtypes = {
     3: np.int16,
     4: np.int32,
     5: np.int64,
-    6: np.float,
+    6: float,
     7: np.double,
     8: np.uint16,
 }
@@ -48,7 +50,8 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
     class Index(object):
         _HDR_MAGIC = b"MMIDIDX\x00\x00"
 
-        def __init__(self, path, skip_warmup=False):
+        def __init__(self, path, skip_warmup=False, verbose=False):
+            self.verbose = verbose
             with open(path, "rb") as stream:
                 magic_test = stream.read(9)
                 assert self._HDR_MAGIC == magic_test, (
@@ -69,23 +72,23 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
                 offset = stream.tell()
 
             if not skip_warmup:
-                print_rank_0("    warming up index mmap file...")
+                print_rank_0("    warming up index mmap file...", verbose=self.verbose)
                 _warmup_mmap_file(path)
 
             self._bin_buffer_mmap = np.memmap(path, mode="r", order="C")
             self._bin_buffer = memoryview(self._bin_buffer_mmap)
-            print_rank_0("    reading sizes...")
+            print_rank_0("    reading sizes...", verbose=self.verbose)
             self._sizes = np.frombuffer(
                 self._bin_buffer, dtype=np.int32, count=self._len, offset=offset
             )
-            print_rank_0("    reading pointers...")
+            print_rank_0("    reading pointers...", verbose=self.verbose)
             self._pointers = np.frombuffer(
                 self._bin_buffer,
                 dtype=np.int64,
                 count=self._len,
                 offset=offset + self._sizes.nbytes,
             )
-            print_rank_0("    reading document index...")
+            print_rank_0("    reading document index...", verbose=self.verbose)
             self._doc_idx = np.frombuffer(
                 self._bin_buffer,
                 dtype=np.int64,
@@ -116,8 +119,10 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
         def __len__(self):
             return self._len
 
-    def __init__(self, path, skip_warmup=False):
+    def __init__(self, path, skip_warmup=False, verbose=False):
         super().__init__()
+        
+        self.verbose=verbose
 
         self._path = None
         self._index = None
@@ -133,16 +138,16 @@ class MMapIndexedDataset(torch.utils.data.Dataset):
 
     def _do_init(self, path, skip_warmup):
         self._path = path
-        self._index = self.Index(index_file_path(self._path), skip_warmup)
+        self._index = self.Index(index_file_path(self._path), skip_warmup, verbose=self.verbose)
 
         if not skip_warmup:
-            print_rank_0("    warming up data mmap file...")
+            print_rank_0("    warming up data mmap file...", verbose=self.verbose)
             _warmup_mmap_file(data_file_path(self._path))
-        print_rank_0("    creating numpy buffer of mmap...")
+        print_rank_0("    creating numpy buffer of mmap...", verbose=self.verbose)
         self._bin_buffer_mmap = np.memmap(
             data_file_path(self._path), mode="r", order="C"
         )
-        print_rank_0("    creating memory view of numpy buffer...")
+        print_rank_0("    creating memory view of numpy buffer...", verbose=self.verbose)
         self._bin_buffer = memoryview(self._bin_buffer_mmap)
 
     def __del__(self):
