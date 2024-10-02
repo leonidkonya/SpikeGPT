@@ -84,7 +84,7 @@ os.environ["RWKV_RUN_DEVICE"] = args.RUN_DEVICE
 
 context = "Az ipafai papnak fapipája van, ezért"
 
-NUM_TRIALS = 999
+NUM_TRIALS = 1
 LENGTH_PER_TRIAL = 333
 
 TEMPERATURE = 1.5

@@ -53,18 +53,16 @@ if __name__ == '__main__':
     # print(f'vocab size: {train_dataset.vocab_size}')
     # print()
 
-    # sys.exit(0)
-
     valid_dataset = Dataset(
         data=MMapIndexedDataset(args.datafile_valid),
         ctx_len=args.ctx_len,
-        epoch_length_fixed=args.epoch_length_fixed,
+        epoch_length_fixed=args.epoch_length_fixed_valid,
     ) if args.datafile_valid else None
 
     test_dataset = Dataset(
         data=MMapIndexedDataset(args.datafile_test),
         ctx_len=args.ctx_len,
-        epoch_length_fixed=args.epoch_length_fixed,
+        epoch_length_fixed=args.epoch_length_fixed_test,
     ) if args.datafile_test else None
 
     model = GPT(
@@ -87,7 +85,7 @@ if __name__ == '__main__':
         batch_size=args.batch_size,
         train_micro_batch_size_per_gpu=args.train_micro_batch_size_per_gpu,
         learning_rate=args.lr_init,
-        lr_decay=True,
+        lr_decay=args.lr_decay,
         lr_final=args.lr_final,
         betas=args.betas,
         eps=args.eps,
@@ -99,6 +97,8 @@ if __name__ == '__main__':
         wandb_logging=args.wandb_logging,
         wandb_project=args.wandb_project,
         wandb_prefix=args.wandb_prefix,
+        wandb_ppl_threshold=args.wandb_ppl_threshold,
+        wandb_entity=args.wandb_entity,
         early_stopping=args.early_stopping,
         early_stopping_steps=args.early_stopping_steps,
         shuffle=args.shuffle,
