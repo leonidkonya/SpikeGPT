@@ -12,18 +12,23 @@ def print_packed_batch(
     batch: torch.Tensor,
     tokenizer: Tokenizer,
     eod_token_id: int,
+    # pad_token_id: int = None,
+    # print_stats: bool = False,
 ):
     """separates the sequences within elements of a batch. Useful for
         sanity checking
+    Optionally, print out things like the amount of padding and EOD tokens used, number of docs
     """
     B, T = batch.shape
+    device = batch.device
     for bidx in range(B):
         tokens = batch[bidx,:]
-        delim_idx = (tokens == eod_token_id).nonzero(as_tuple=True)[0]
+        eod_mask = tokens == eod_token_id
+        delim_idx = eod_mask.nonzero(as_tuple=True)[0].to(device)
         split_idx = torch.cat((
-            torch.tensor([-1]),
+            torch.tensor([-1]).to(device),
             delim_idx,
-            torch.tensor([tokens.size(0)]),
+            torch.tensor([T]).to(device),
         ))
         split_seq = [
             tokens[split_idx[i]+1:split_idx[i+1]]
@@ -31,8 +36,55 @@ def print_packed_batch(
         ]
 
         for seq in split_seq:
-            print(tokenizer.decode(seq.tolist()))
+            print('\t'+tokenizer.decode(seq.tolist()))
         print('-'*10)
+
+
+    print('='*10)
+
+
+def get_packing_stats(
+    batch: torch.Tensor,
+    eod_token_id: int,
+    pad_token_id: int,
+):
+    """
+    returns the amount of pad and eod tokens in the batch,
+        as well as the number of documents
+    if an eod token is at the last pos of a batch, document count has to be decreased
+    """
+
+    B, T = batch.shape
+
+    pad_tokens = (batch == pad_token_id).sum()
+    eod_token_mask = batch == eod_token_id
+    eod_tokens = eod_token_mask.sum()
+
+    doc_count = eod_tokens + (eod_token_mask.sum(1) == 0).sum() # take into account truncated docs
+
+
+    return pad_tokens, eod_tokens, doc_count
+
+
+def print_packing_stats(
+    batch: torch.Tensor,
+    eod_token_id: int,
+    pad_token_id: int,
+):
+    B, T = batch.shape
+    total_tokens = B*T
+    pad_tokens, eod_tokens, doc_count = get_packing_stats(batch, eod_token_id, pad_token_id)
+    eff = 1-(pad_tokens+eod_tokens)/total_tokens # batch "space" utilization
+
+    print(f'pad: {pad_tokens}')
+    print(f'eod: {eod_tokens}')
+    print(f'doc: {doc_count}')
+    print(f'total tokens: {total_tokens}')
+    print(f'packing efficiency: {eff}')
+    print('-'*10)
+
+    return pad_tokens, eod_tokens, doc_count
+
 
 
 
@@ -147,7 +199,6 @@ class SamplePackingBatchSampler(BatchSampler):
 
         if self.random_sampler:
             self.shuffle_idxs = [idx for idx in self.random_sampler]
-            self.inv_shuffle_idxs = np.argsort(self.shuffle_idxs)
             lengths = self.lengths[self.shuffle_idxs]
         else:
             lengths = self.lengths
@@ -164,7 +215,7 @@ class SamplePackingBatchSampler(BatchSampler):
         if self.random_sampler:
             _batches = [[] for _ in range(len(batches))]
             for i, batch in enumerate(batches):
-                _batches[i] = self.inv_shuffle_idxs[batch].tolist()
+                _batches[i] = np.array(self.shuffle_idxs)[batch].tolist()
             batches = _batches
 
         #group into batches
@@ -176,6 +227,8 @@ class SamplePackingBatchSampler(BatchSampler):
         return _batches
 
     def __iter__(self):
+        if self.random_sampler: # no need to recalc if deterministic
+            self.batches = self.generate_batches()
         self.iterator = iter(self.batches)
         return self
     
@@ -186,6 +239,14 @@ class SamplePackingBatchSampler(BatchSampler):
             raise StopIteration
 
     def __len__(self):
+        """
+        NOTE: this can change if a random_sampler was provided
+            __init__ and __iter__ recreate the batch packing,
+            so len() is only consistent within a single epoch.
+            If len() is called outside the epoch, it will report
+            a slightly inaccurate size
+            (though it isn't expected to change much)
+        """
         return len(self.batches)
     
 
