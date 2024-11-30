@@ -1,0 +1,86 @@
+
+
+# model
+ctx_len: 1024 # ===> increase T_MAX in model.py if your ctx_len > 1024
+# ctx_len: 128
+n_layer: 6
+# n_embd: 512
+n_embd: 128
+# 'RWKV' (better for char-level English) or 'RWKV-ffnPre' (better in some cases)
+# model_type: 'RWKV-ffnPre'
+# model_type: 'RWKV'
+# in case of fine-tuning: (not yet implemented)
+# TODO: add loading based on special init
+model_pretrained_path: #"/workspace/spiking_workspace/SpikeGPT-OpenWebText-216/SpikeGPT-216M.pth"
+use_pretrained: False
+
+# wandb
+wandb_logging: False
+# wandb_entity: "leonidkonya"
+wandb_entity: "mandatory-org-name-434"
+wandb_project: "spiking_lm"
+# wandb_project: "spiking_lm_hu"
+wandb_prefix: "spikeGPT" # also used as the save name
+# wandb_run_name: "" # if not empty, the trainer will generate a name
+wandb_ppl_threshold: 500 # at the start of training it's large so it messes up the graph's aspect ratio
+
+# training
+epoch_save_frequency: 5 # 0 = only save after the last epoch
+epoch_save_path: "/workspace/spiking_workspace/out_spiking"
+# epoch_length_fixed: 2000000000 #2B
+epoch_length_fixed: 100000
+# epoch_length_fixed_valid: 100000000 #100M
+epoch_length_fixed_valid: 100000
+epoch_length_fixed_test: 
+grad_norm_clip: 1.0
+# warmup_tokens: 256000 #500*512, 500 warmup steps
+# warmup_tokens: 512000 #500*1024, 500 warmup steps
+warmup_tokens: 1000
+betas:
+  - 0.9
+  - 0.99
+
+eps: 0.0000000004
+# lr_decay: False # why would it be false? aren't they using lr decay in the paper?
+lr_decay: True
+lr_init: 0.0006
+lr_final: 0.00001
+# the mini-epoch is very short and of fixed length
+#   (ctx_len * epoch_length_fixed tokens)
+# n_epoch: 500
+n_epoch: 1
+# ===> batch_size must be divisible by B_GROUP_FORWARD and B_GROUP_BACKWARD in model.py
+# For example, if your batch_size = 20, you can set B_GROUP_FORWARD = 4, B_GROUP_BACKWARD = 2
+# If you see "CUDA out of memory", reduce it. Use GPU-Z to find the highest value for your VRAM.
+batch_size: 2
+train_micro_batch_size_per_gpu: 2 # does this change to batch_size//NUM_GPUs when not using DP?
+num_workers: 2
+
+# shuffle: False
+
+
+# datafile_train: "/workspace/spiking_workspace/pretokenized/wikitext103/wikitext103" # in the case of mmap (.bin and .idx files) the name of both files should be the same, adn that that should be given here
+# datafile_train: "/workspace/spiking_workspace/pretokenized/sample_dataset/sample_dataset_text_document" # in the case of mmap (.bin and .idx files) the name of both files should be the same, adn that that should be given here
+# datafile_train: "/workspace/spiking_workspace/pretokenized/train_dataset/train_dataset_text_document"
+# datafile_valid: "/workspace/spiking_workspace/pretokenized/valid_dataset/valid_dataset_text_document"
+# datafile_valid: 
+# datafile_test: 
+
+tokenizer_path: '/workspace/spiking_workspace/BPE_byte_fallback_32768.json'
+
+data_train:
+- '/workspace/data_copy/Wikipedia/jsonl/wiki_0149.jsonl.gz'
+
+
+
+
+# ====== debug
+
+
+early_stopping: True
+early_stopping_steps: 10 # how many steps should it stop after
+save_mid_epoch: False
+save_after_train: False
+
+# final_tokens: 20000000000 #20B - manually inputting it since we can't count it due to streaming
+final_tokens: 200000 # 200K

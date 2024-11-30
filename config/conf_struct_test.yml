@@ -1,0 +1,11 @@
+
+
+
+
+data_train:
+- 'asd1.txt'
+- 'asd2.txt'
+
+data_valid:
+- 'asd3.txt'
+- 'asd4.txt'

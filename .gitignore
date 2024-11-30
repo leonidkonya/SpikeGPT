@@ -2,10 +2,8 @@
 
 
 
-*.pth
+**/*.pth
 wandb/
-wik8-0.01.txt
-__pycache__/
-src/__pycache__/
-src/spikingjelly/__pycache__/
-src/spikingjelly/clock_driven/__pycache__/
+**/*.txt
+**/__pycache__
+**/*.ipynb

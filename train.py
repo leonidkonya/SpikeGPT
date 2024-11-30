@@ -109,7 +109,7 @@ if __name__ == '__main__':
         train_dataset,
         valid_dataset,
         test_dataset,
-        tconf
+        tconf,
     )
 
     trainer.train()

@@ -14,10 +14,41 @@ import random
 import numpy as np
 import torch
 from torch.nn import functional as F
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset as TorchDataset
+
+import torch.distributed as dist
+# from accelerate import PartialState
+
+# from datetime import timedelta
 
 
-class Dataset(Dataset):
+class FairseqDataset(TorchDataset):
+    """MMapIndexedDataset
+    """
+    def __init__(self, data, ctx_len, epoch_length_fixed):
+        self.ctx_len = ctx_len
+        self.epoch_length_fixed = epoch_length_fixed
+        self.data = data # the mmap dataset
+        self.vocab_size = 60000
+        self.data_size = len(self.data._bin_buffer) // 2
+
+    def __len__(self):
+        return self.epoch_length_fixed // NUM_GPUS
+
+    def __getitem__(self, idx):
+        #
+        # we are cheating: pick a random spot in dataset
+        #
+        i = np.random.randint(0, self.data_size - (self.ctx_len + 1))
+        dix = self.data.get(idx=0, offset=i, length=self.ctx_len + 1).astype(int)
+        
+        x = torch.tensor(dix[:-1], dtype=torch.long)
+        y = torch.tensor(dix[1:], dtype=torch.long)
+        return x, y
+
+
+
+class Dataset(TorchDataset):
     def __init__(self, data, ctx_len, epoch_length_fixed):
         self.ctx_len = ctx_len
         self.epoch_length_fixed = epoch_length_fixed
@@ -155,3 +186,46 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+distributed_state = None  # pylint: disable=invalid-name
+
+# def is_distributed():
+#     """
+#     Check if distributed training is initialized.
+#     """
+#     global distributed_state  # pylint: disable=global-statement
+#     if not distributed_state:
+#         timeout = int(os.environ.get("AXOLOTL_NCCL_TIMEOUT", 1800))
+#         distributed_state = PartialState(timeout=timedelta(seconds=timeout))
+
+#     return distributed_state.use_distributed and distributed_state.initialized
+
+
+# def is_main_process():
+#     """
+#     Check if the current process is the main process.
+#     If not in distributed mode, always return True.
+#     """
+#     if not is_distributed():
+#         return True
+#     return dist.get_rank() == 0
+
+
+def _hprint(*args,main_only=False):
+    print('\n\n'+50*'='+'\n')
+    print('\t\t',*args,'\n')
+    print(50*'='+'\n\n')
+
+
+# def hprint(*args, main_only=True):
+#     if not main_only or is_main_process():
+#         _hprint(*args)
+
+# def barrier():
+#     """
+#     Acts as a barrier to wait for all processes. This ensures that all processes
+#     reach the barrier before proceeding further.
+#     """
+#     # print('doing a barrier')
+#     if is_distributed():
+#         dist.barrier()
