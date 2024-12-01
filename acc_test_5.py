@@ -18,13 +18,26 @@ from src.packing_utils import (
     print_packed_batch,
     SamplePackingBatchSampler,
     collate_fn_base,
+    get_packing_stats,
 )
 
-from torch.utils.data.distributed import DistributedSampler
+from accelerate import DataLoaderConfiguration
+
+# from torch.utils.data.distributed import DistributedSampler
+
+
+"""
+proper distributed sampling attempt
+
+"""
+
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cuda.matmul.allow_tf32 = True
+
+
+use_seedable_sampler = True
 
 
 config_path = 'config/conf_small_test.yml'
@@ -56,11 +69,11 @@ collate_fn = partial(
 
 
 batch_size = 4
-dataset_size = 32
+dataset_size = 128
 zero_stage = 1
 gradient_accumulation_steps = 1
 world_size = int(os.environ.get('WORLD_SIZE', 1))
-packing_group_size = 8
+packing_group_size = 16
 
 train_batch_size = batch_size * gradient_accumulation_steps * world_size
 
@@ -86,7 +99,14 @@ deepspeed_plugin = DeepSpeedPlugin(
     gradient_accumulation_steps=gradient_accumulation_steps,
 )
 
-accelerator = Accelerator(deepspeed_plugin=deepspeed_plugin)
+dataloader_config = DataLoaderConfiguration(
+    use_seedable_sampler=use_seedable_sampler,
+)
+
+accelerator = Accelerator(
+    deepspeed_plugin=deepspeed_plugin,
+    dataloader_config=dataloader_config,
+)
 
 
 dataset = load_from_disk(pretokenized_path)
@@ -102,8 +122,7 @@ packing_sampler = SamplePackingBatchSampler(
     ctx_len=args.ctx_len,
     group_size=packing_group_size,
     lengths=lengths,
-    # sampler=RandomSampler(dataset),
-    sampler=DistributedSampler(dataset),
+    sampler=RandomSampler(dataset),
 )
 
 data_loader = DataLoader(
@@ -121,12 +140,16 @@ optimizer = FusedAdam(model.parameters(), lr=0.001)
 
 model, optimizer, data_loader = accelerator.prepare(model, optimizer, data_loader)
 
+doc_count_total = 0
 for i, (x, y) in enumerate(data_loader):
-    if i == 0:
-        print(f'length of dataloader: {len(data_loader)}')
-    print(f'\n{i}\n')
-    # print_packed_batch(x, tokenizer=tokenizer, eod_token_id=eod_token_id)
-    
+    # print_packed_batch(x, tokenizer, eod_token_id)
+
+    pad, eod, doc_count = get_packing_stats(x, eod_token_id, pad_token_id)
+    doc_count_total += doc_count
+
+print(f'doc count total: {doc_count_total}')
+
+
 
 
 

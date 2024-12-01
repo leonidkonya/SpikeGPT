@@ -20,7 +20,14 @@ from src.packing_utils import (
     collate_fn_base,
 )
 
-from torch.utils.data.distributed import DistributedSampler
+# from torch.utils.data.distributed import DistributedSampler
+
+
+"""
+proper distributed sampling attempt
+
+"""
+
 
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.allow_tf32 = True
@@ -86,7 +93,10 @@ deepspeed_plugin = DeepSpeedPlugin(
     gradient_accumulation_steps=gradient_accumulation_steps,
 )
 
-accelerator = Accelerator(deepspeed_plugin=deepspeed_plugin)
+accelerator = Accelerator(
+    deepspeed_plugin=deepspeed_plugin,
+    use_seedable_sampler=True,
+)
 
 
 dataset = load_from_disk(pretokenized_path)
@@ -102,8 +112,7 @@ packing_sampler = SamplePackingBatchSampler(
     ctx_len=args.ctx_len,
     group_size=packing_group_size,
     lengths=lengths,
-    # sampler=RandomSampler(dataset),
-    sampler=DistributedSampler(dataset),
+    sampler=RandomSampler(dataset),
 )
 
 data_loader = DataLoader(
@@ -122,11 +131,14 @@ optimizer = FusedAdam(model.parameters(), lr=0.001)
 model, optimizer, data_loader = accelerator.prepare(model, optimizer, data_loader)
 
 for i, (x, y) in enumerate(data_loader):
-    if i == 0:
-        print(f'length of dataloader: {len(data_loader)}')
-    print(f'\n{i}\n')
-    # print_packed_batch(x, tokenizer=tokenizer, eod_token_id=eod_token_id)
+    break
+
+print('='*20)
+
+for i, (x, y) in enumerate(data_loader):
+    break
     
+print('='*20)
 
 
 

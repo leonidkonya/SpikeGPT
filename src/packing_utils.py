@@ -7,13 +7,13 @@ from torch.utils.data.sampler import BatchSampler
 from itertools import chain
 from torch.nn.utils.rnn import pad_sequence
 
+import torch.distributed as dist
+
 
 def print_packed_batch(
     batch: torch.Tensor,
     tokenizer: Tokenizer,
     eod_token_id: int,
-    # pad_token_id: int = None,
-    # print_stats: bool = False,
 ):
     """separates the sequences within elements of a batch. Useful for
         sanity checking
@@ -25,15 +25,17 @@ def print_packed_batch(
         tokens = batch[bidx,:]
         eod_mask = tokens == eod_token_id
         delim_idx = eod_mask.nonzero(as_tuple=True)[0].to(device)
-        split_idx = torch.cat((
-            torch.tensor([-1]).to(device),
-            delim_idx,
-            torch.tensor([T]).to(device),
-        ))
-        split_seq = [
-            tokens[split_idx[i]+1:split_idx[i+1]]
-            for i in range(len(split_idx)-1)
-        ]
+        if delim_idx.numel() == 0:
+            split_seq = [tokens]
+        else:
+            split_idx = torch.cat((
+                torch.tensor([-1]).to(device),
+                delim_idx,
+            ))
+            split_seq = [
+                tokens[split_idx[i]+1:split_idx[i+1]]
+                for i in range(len(split_idx)-1)
+            ]
 
         for seq in split_seq:
             print('\t'+tokenizer.decode(seq.tolist()))
@@ -179,16 +181,19 @@ class SamplePackingBatchSampler(BatchSampler):
         ctx_len,
         group_size,
         lengths,
-        random_sampler=None,
+        sampler=None,
     ):
         self.batch_size = batch_size
         self.ctx_len = ctx_len
         self.group_size = group_size
         self.lengths = lengths
-        self.random_sampler = random_sampler
+        self.sampler = sampler
         self.shuffle_idxs = None
 
-        self.batches = self.generate_batches()
+        # self.batches = self.generate_batches()
+        self.batches = None
+
+        # print(f'SamplePackingBatchSampler.__init__ with sampler {type(sampler)}')
 
     def generate_batches(self):
         """
@@ -197,8 +202,9 @@ class SamplePackingBatchSampler(BatchSampler):
             - the outer list is the batch dimension
         """
 
-        if self.random_sampler:
-            self.shuffle_idxs = [idx for idx in self.random_sampler]
+        if self.sampler:
+            self.shuffle_idxs = [idx for idx in self.sampler]
+            # print(f'inds: {self.shuffle_idxs}')
             lengths = self.lengths[self.shuffle_idxs]
         else:
             lengths = self.lengths
@@ -212,7 +218,7 @@ class SamplePackingBatchSampler(BatchSampler):
         )
 
         # map the shuffled indices back to the original ones
-        if self.random_sampler:
+        if self.sampler:
             _batches = [[] for _ in range(len(batches))]
             for i, batch in enumerate(batches):
                 _batches[i] = np.array(self.shuffle_idxs)[batch].tolist()
@@ -227,12 +233,14 @@ class SamplePackingBatchSampler(BatchSampler):
         return _batches
 
     def __iter__(self):
-        if self.random_sampler: # no need to recalc if deterministic
+        # print(f'SamplePackingBatchSampler.__iter__ @ proc {dist.get_rank()}')
+        if self.sampler: # no need to recalc if deterministic
             self.batches = self.generate_batches()
         self.iterator = iter(self.batches)
         return self
     
     def __next__(self):
+        # print(f'SamplePackingBatchSampler.__next__ @ proc {dist.get_rank()}')
         try:
             return next(self.iterator)
         except StopIteration:
@@ -240,14 +248,14 @@ class SamplePackingBatchSampler(BatchSampler):
 
     def __len__(self):
         """
-        NOTE: this can change if a random_sampler was provided
+        NOTE: this can change if a sampler was provided.
             __init__ and __iter__ recreate the batch packing,
             so len() is only consistent within a single epoch.
             If len() is called outside the epoch, it will report
             a slightly inaccurate size
             (though it isn't expected to change much)
         """
-        return len(self.batches)
+        return len(self.batches) if self.batches is not None else 0
     
 
 
