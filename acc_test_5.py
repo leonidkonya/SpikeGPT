@@ -23,8 +23,6 @@ from src.packing_utils import (
 
 from accelerate import DataLoaderConfiguration
 
-# from torch.utils.data.distributed import DistributedSampler
-
 
 """
 proper distributed sampling attempt

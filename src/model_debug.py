@@ -48,34 +48,6 @@ class L2Wrap(torch.autograd.Function):
 T_MAX = 1024  # increase this if your ctx_len is long [NOTE: TAKES LOTS OF VRAM!]
 # it's possible to go beyond CUDA limitations if you slice the ctx and pass the hidden state in each slice
 
-# NUM_LOAD_RETRIES = 2
-
-# wkv_load_success = False
-# for _ in range(NUM_LOAD_RETRIES):
-#     try:
-#         wkv_cuda = load(
-#             name="wkv",
-#             sources=["cuda/wkv_op.cpp", "cuda/wkv_cuda.cu"],
-#             verbose=True,
-#             extra_cuda_cflags=[
-#                 '-res-usage',
-#                 '--maxrregcount 60',
-#                 '--use_fast_math',
-#                 '-O3',
-#                 '-Xptxas -O3',
-#                 f'-DTmax={T_MAX}'
-#             ],
-#         )
-#         wkv_load_success = True
-#         break
-#     except:
-#         print('retrying loading wkv kernels')
-
-# if wkv_load_success:
-#     print('\n\nsuccessfully built wkv_cuda\n\n')
-# else:
-#     print('\n\nFAILED to build wkv_cuda\n\n')
-
 
 wkv_cuda = load(
     name="wkv",
