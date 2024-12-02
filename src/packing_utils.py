@@ -193,7 +193,6 @@ class SamplePackingBatchSampler(BatchSampler):
         # self.batches = self.generate_batches()
         self.batches = None
 
-        # print(f'SamplePackingBatchSampler.__init__ with sampler {type(sampler)}')
 
     def generate_batches(self):
         """
@@ -204,12 +203,12 @@ class SamplePackingBatchSampler(BatchSampler):
 
         if self.sampler:
             self.shuffle_idxs = [idx for idx in self.sampler]
-            # print(f'inds: {self.shuffle_idxs}')
             lengths = self.lengths[self.shuffle_idxs]
         else:
             lengths = self.lengths
         
         lengths_cumsum = np.cumsum(lengths)
+
         batches = allocate(
             lengths=lengths,
             lengths_cumsum=lengths_cumsum,
@@ -217,12 +216,19 @@ class SamplePackingBatchSampler(BatchSampler):
             n=self.group_size,
         )
 
-        # map the shuffled indices back to the original ones
         if self.sampler:
-            _batches = [[] for _ in range(len(batches))]
+            flat_batches = np.array([idx for batch in batches for idx in batch])
+            shuffled_flat = np.array(self.shuffle_idxs)[flat_batches]
+
+            reshaped_batches = []
+            start = 0
+            b_len = len(batches)
             for i, batch in enumerate(batches):
-                _batches[i] = np.array(self.shuffle_idxs)[batch].tolist()
-            batches = _batches
+                size = len(batch)
+                reshaped_batches.append(shuffled_flat[start:start + size].tolist())
+                start += size
+
+            batches = reshaped_batches
 
         #group into batches
         _batches = [
@@ -233,14 +239,12 @@ class SamplePackingBatchSampler(BatchSampler):
         return _batches
 
     def __iter__(self):
-        # print(f'SamplePackingBatchSampler.__iter__ @ proc {dist.get_rank()}')
         if self.sampler: # no need to recalc if deterministic
             self.batches = self.generate_batches()
         self.iterator = iter(self.batches)
         return self
     
     def __next__(self):
-        # print(f'SamplePackingBatchSampler.__next__ @ proc {dist.get_rank()}')
         try:
             return next(self.iterator)
         except StopIteration:
